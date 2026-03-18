@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="ur">
+<head>
+    <meta charset="UTF-8">
+    <title>Smart Earnings | Pro Terminal & Telegram Alerts</title>
+    <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
+    <style>
+        body { background-color: #0b0e11; color: white; font-family: 'Segoe UI', sans-serif; margin: 0; padding: 0; }
+        .top-nav { background: #1e222d; padding: 15px; display: flex; gap: 15px; border-bottom: 1px solid #333; justify-content: center; align-items: center; flex-wrap: wrap; }
+        input, select, button { padding: 10px 15px; border-radius: 6px; border: 1px solid #333; background: #2a2e39; color: white; outline: none; }
+        button { background: #f0b90b; color: black; font-weight: bold; cursor: pointer; border: none; }
+        #chart-container { width: 100vw; height: calc(100vh - 85px); position: relative; }
+        .status-bar { position: absolute; top: 15px; left: 20px; z-index: 10; background: rgba(20, 24, 35, 0.8); padding: 12px; border-radius: 8px; border-left: 4px solid #f0b90b; pointer-events: none; }
+    </style>
+</head>
+<body>
+
+    <div class="top-nav">
+        <input type="text" id="coin-input" value="BTC" placeholder="Coin (e.g. BTC, ETH, GOLD)">
+        <select id="tf-input">
+            <option value="1m">1 min</option>
+            <option value="5m">5 min</option>
+            <option value="15m" selected>15 min</option>
+            <option value="1h">1 hour</option>
+            <option value="4h">4 hour</option>
+        </select>
+        <button onclick="startTrading()">لوڈ چارٹ اور الرٹس</button>
+    </div>
+
+    <div id="chart-container">
+        <div class="status-bar" id="stats">
+            <strong id="display-symbol">BTC/USDT</strong><br>
+            قیمت: <span id="display-price" style="color: #f0b90b;">--</span><br>
+            الرٹس: <span id="alert-status" style="color: #00c076;">Active ✅</span>
+        </div>
+    </div>
+
+    <script>
+        // --- ٹیلی گرام سیٹنگز ---
+        const botToken = "8780548013:AAGZsDLxLkD9QBmap4wZN9WMH8bjpBLXf4o"; // اپنا بوٹ ٹوکن یہاں ڈالیں
+        const chatId = "390615177";     // اپنی چیٹ آئی ڈی یہاں ڈالیں
+
+        let chart, candleSeries, ws, markers = [];
+        let historyData = [];
+        const lookback = 20;
+
+        function initChart() {
+            const container = document.getElementById('chart-container');
+            chart = LightweightCharts.createChart(container, {
+                layout: { background: { color: '#0b0e11' }, textColor: '#d1d4dc' },
+                grid: { vertLines: { color: '#1f2226' }, horzLines: { color: '#1f2226' } },
+                timeScale: { timeVisible: true, borderColor: '#485c7b' }
+            });
+            candleSeries = chart.addCandlestickSeries({
+                upColor: '#00c076', downColor: '#ff3b30', borderVisible: false,
+                wickUpColor: '#00c076', wickDownColor: '#ff3b30'
+            });
+        }
+
+        async function sendTelegram(msg) {
+            const url = `https://api.telegram.org/bot${botToken}/sendMessage?chat_id=${chatId}&text=${encodeURIComponent(msg)}`;
+            try { await fetch(url); } catch (e) { console.error("Telegram Error", e); }
+        }
+
+        async function startTrading() {
+            let symbol = document.getElementById('coin-input').value.toUpperCase();
+            if(symbol === "GOLD") symbol = "PAXG";
+            const tf = document.getElementById('tf-input').value;
+            const pair = symbol + "USDT";
+            
+            if (ws) ws.close();
+            document.getElementById('display-symbol').innerText = pair + " (" + tf + ")";
+
+            const resp = await fetch(`https://api.binance.com/api/v3/klines?symbol=${pair}&interval=${tf}&limit=500`);
+            historyData = (await resp.json()).map(d => ({
+                time: d[0] / 1000, open: parseFloat(d[1]), high: parseFloat(d[2]), low: parseFloat(d[3]), close: parseFloat(d[4]), vol: parseFloat(d[5])
+            }));
+            
+            candleSeries.setData(historyData);
+            processSignals(historyData, pair, false); // ہسٹری پر صرف مارکر لگیں گے، میسج نہیں جائے گا
+
+            ws = new WebSocket(`wss://stream.binance.com:9443/ws/${pair.toLowerCase()}@kline_${tf}`);
+            ws.onmessage = (e) => {
+                const msg = JSON.parse(e.data);
+                const k = msg.k;
+                const liveCandle = {
+                    time: k.t / 1000, open: parseFloat(k.o), high: parseFloat(k.h), low: parseFloat(k.l), close: parseFloat(k.c), vol: parseFloat(k.v)
+                };
+                
+                candleSeries.update(liveCandle);
+                document.getElementById('display-price').innerText = "$" + liveCandle.close.toLocaleString();
+
+                if (k.x) { // جب کینڈل مکمل (Close) ہو جائے
+                    historyData.push(liveCandle);
+                    processSignals(historyData, pair, true); // لائیو سگنل پر ٹیلی گرام جائے گا
+                }
+            };
+        }
+
+        function processSignals(data, symbol, isLive) {
+            markers = [];
+            let volAvg = data.slice(-50).reduce((a, b) => a + b.vol, 0) / 50;
+
+            for (let i = lookback; i < data.length; i++) {
+                let prev = data.slice(i - lookback, i);
+                let pHigh = Math.max(...prev.map(c => c.high));
+                let pLow = Math.min(...prev.map(c => c.low));
+                let curr = data[i];
+
+                if (curr.vol > volAvg * 1.1) {
+                    if (curr.high > pHigh && curr.close < pHigh) {
+                        markers.push({ time: curr.time, position: 'aboveBar', color: '#ff3b30', shape: 'arrowDown', text: 'SELL' });
+                        if(isLive && i === data.length - 1) sendTelegram(`🔴 SELL SIGNAL\nCoin: ${symbol}\nPrice: $${curr.close}`);
+                    } else if (curr.low < pLow && curr.close > pLow) {
+                        markers.push({ time: curr.time, position: 'belowBar', color: '#00c076', shape: 'arrowUp', text: 'BUY' });
+                        if(isLive && i === data.length - 1) sendTelegram(`🟢 BUY SIGNAL\nCoin: ${symbol}\nPrice: $${curr.close}`);
+                    }
+                }
+            }
+            candleSeries.setMarkers(markers);
+        }
+
+        initChart();
+        startTrading();
+        window.onresize = () => chart.resize(window.innerWidth, window.innerHeight - 85);
+    </script>
+</body>
+</html>
