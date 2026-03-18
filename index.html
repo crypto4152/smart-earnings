@@ -11,7 +11,18 @@
         button { background: #f0b90b; color: black; font-weight: bold; cursor: pointer; border: none; }
         #chart-container { width: 100vw; height: calc(100vh - 85px); position: relative; }
         .status-bar { position: absolute; top: 15px; left: 20px; z-index: 10; background: rgba(20, 24, 35, 0.8); padding: 12px; border-radius: 8px; border-left: 4px solid #f0b90b; pointer-events: none; }
-    </style>
+    </sty.btn-donate { 
+    background: #FF813F; 
+    color: white; 
+    font-weight: bold; 
+    padding: 10px 15px; 
+    border-radius: 6px; 
+    text-decoration: none; 
+    display: inline-flex; 
+    align-items: center;
+    margin-left: 10px;
+}
+.btn-donate:hover { background: #ff9d66; }le>
 </head>
 <body>
 
@@ -24,7 +35,7 @@
             <option value="1h">1 hour</option>
             <option value="4h">4 hour</option>
         </select>
-        <button onclick="startTrading()">لوڈ چارٹ اور الرٹس</button>
+        <button onclick="startTrading()">لوڈ چارٹ اور الرٹس</button><a href="https://www.buymeacoffee.com/0xa978282D17811E4d376Cff15a3d0cC7a0Aa2A225" target="_blank" class="btn-donate">☕ Buy me a coffee</a>
     </div>
 
     <div id="chart-container">
